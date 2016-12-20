@@ -4,13 +4,20 @@ import networkx as nx
 import sys
 import angr
 import claripy
+import time
 G=nx.DiGraph()
 branch=0
 over=0
+real_target=0
+logfilename="angrlog"
+def log(message):
+    temp=open(logfilename,"a")
+    temp.write(time.ctime()+" "+message+"\n")
+    temp.close()
 def stop(pg):
     global over
     if over==1:
-        over=0;
+        over=0
         return True
     if len(pg.active)<1:
         return True
@@ -18,6 +25,7 @@ def stop(pg):
 def next(pg):
     global G
     global branch
+    global real_target
     successor=pg.step()
     alladdr=[]
     for x in successor:
@@ -25,27 +33,33 @@ def next(pg):
     
     flag=0
     if branch in alladdr:
-        print "find the target to test"
+        log("find the target to test")
         flag=1
     new_successor=[]
     for i in successor:
         if flag==1 and i.addr!=branch:
-            print "find another branch!!"
-            print hex(i.addr)
+            log("find another branch!!")
+	    #print real_target
+            #print hex(i.addr)
             over=1
-            f=open(str(i.addr),"w")
             try:
-                print i.state.posix.dumps(0)
+		#print i.state.posix.dumps(0)
+		if len(i.state.posix.dumps(0))==0:
+			print "no len input"
+		else:
+			print i.state.posix.dumps(0).encode("hex")
+			log("we found it")
+			f=open("old/0x"+real_target+"->"+hex(i.addr),"w")
+			f.write(i.state.posix.dumps(0))
+			f.close()
             except:
-                print "no input"
-            f.close()
-            raw_input()
+                log("no input")
         if i.addr in G:
             new_successor.append(i)
         elif i.addr>0x600000:
             new_successor.append(i)
-        else:
-            print "out graph: ",hex(i.addr)
+        #else:
+            #print "out graph: ",hex(i.addr)
     #print new_successor
     return new_successor
 
@@ -54,9 +68,10 @@ def next(pg):
 def main():
     global G
     global branch
+    global real_target
     binary=angr.Project(sys.argv[2])
-    state=binary.factory.entry_state(args=[sys.argv[2],claripy.BVV("-nn -vvv -e -b -H -u -r")])
-    replay=json.load(open("replay.json","r"))
+    state=binary.factory.entry_state(args=[sys.argv[2],claripy.BVV("-nn"),claripy.BVV("-vvv"),claripy.BVV("-e"),claripy.BVV("-b"),claripy.BVV("-H"),claripy.BVV("-u"),claripy.BVV("-r"),claripy.BVV("-")])
+    replay=json.load(open(sys.argv[3],"r"))
     order=open(sys.argv[1]).readlines()
     target={}
     for b,o in replay['target'].items():        
@@ -65,12 +80,13 @@ def main():
     while num!=len(order):
         addr=order[num].split(" ")[1]
         addr=addr.split("-")[0]
-        print "Now process: "+addr
+	real_target=addr
+        log("Now process: "+addr)
         path=binary.factory.path(state)
         pg=binary.factory.path_group(path)
         addr=int(addr,16)
         branch=target[addr]['way'][0]
-        print "pass to: "+hex(branch)
+        log("pass to: "+hex(branch))
         G=nx.DiGraph()
         for x in target[addr]["subcfg"]:
             G.add_edge(x[0],x[1])
