@@ -10,6 +10,12 @@ branch=0
 over=0
 real_target=0
 logfilename="angrlog"
+processlogfilename="countlog"
+def processlog(message):
+    temp=open(processlogfilename,"a")
+    temp.write(time.ctime()+" "+message+"\n")
+    temp.close()
+    log(message)
 def log(message):
     temp=open(logfilename,"a")
     temp.write(time.ctime()+" "+message+"\n")
@@ -81,12 +87,12 @@ def main():
         addr=order[num].split(" ")[1]
         addr=addr.split("-")[0]
 	real_target=addr
-        log("Now process: "+addr)
+        processlog("Now process: "+addr)
         path=binary.factory.path(state)
         pg=binary.factory.path_group(path)
         addr=int(addr,16)
         branch=target[addr]['way'][0]
-        log("pass to: "+hex(branch))
+        processlog("pass to: "+hex(branch))
         G=nx.DiGraph()
         for x in target[addr]["subcfg"]:
             G.add_edge(x[0],x[1])
