@@ -6,12 +6,14 @@ import angr
 import claripy
 import time
 G=nx.DiGraph()
+nowtime=0
 Distance={}
 branch=0
 over=0
+pending_state=[]
 real_target=0
-logfilename="angrlog"
-processlogfilename="countlog"
+logfilename="B&Bangrlog"
+processlogfilename="B&Bcountlog"
 targetblock=0
 def processlog(message):
     temp=open(processlogfilename,"a")
@@ -24,26 +26,44 @@ def log(message):
     temp.close()
 def stop(pg):
     global over
+    global pending_state
+    global nowtime
     if over==1:
         over=0
         return True
-    if len(pg.active)<1:
+    if time.time()-nowtime>600:
+        processlog("timeout!")
         return True
+    if len(pg.stashes["active"])<1:
+        if len(pending_state)<1:
+            return True
+        else:
+            pg.stashes["active"]=pending_state
+            pending_state=[]
+            log("I am here")
+            return false
     return False
 def next(pg):
+    global pending_state
     global G
     global branch
     global real_target
     successor=pg.step()
     alladdr=[]
+    bound=10000000000
+    #print successor
     for x in successor:
         alladdr.append(x.addr)
-    
+        if x.addr in G and Distance[x.addr]<bound:
+            bound=Distance[x.addr]
+    #print bound
     flag=0
     if branch in alladdr:
         log("find the target to test")
         flag=1
     new_successor=[]
+
+        
     for i in successor:
         if flag==1 and i.addr!=branch:
             log("find another branch!!")
@@ -55,20 +75,28 @@ def next(pg):
 		if len(i.state.posix.dumps(0))==0:
 			print "no len input"
 		else:
-			print i.state.posix.dumps(0).encode("hex")
-			log("we found it")
-			f=open("old/0x"+real_target+"->"+hex(i.addr),"w")
+			processlog( i.state.posix.dumps(0).encode("hex"))
+			processlog("we found it")
+                        processlog(str(time.time()-nowtime))
+			f=open("B/0x"+real_target+"->"+hex(i.addr),"w")
 			f.write(i.state.posix.dumps(0))
 			f.close()
             except:
                 log("no input")
         if i.addr in G:
-            new_successor.append(i)
+            if Distance[i.addr]<=bound:
+                new_successor.append(i)
+            else:
+                pending_state.append(i)
         elif i.addr>0x600000:
             new_successor.append(i)
         #else:
             #print "out graph: ",hex(i.addr)
     #print new_successor
+    if len(new_successor)==0:
+        new_successor=pending_state
+        pending_state=[]
+        #log("add pending")
     return new_successor
 def GraphWithDistance(subG):
     global Distance
@@ -99,8 +127,14 @@ def findtargetblock(subG,addr,branch):
     
 def main():
     global G
+    global pending_state
     global branch
     global real_target
+    global nowtime
+    print len(sys.argv)
+    if len(sys.argv)!=4:
+	print "Usage: ./branch-heuristic.py order-file binary-file json-file"
+	exit()
     binary=angr.Project(sys.argv[2])
     state=binary.factory.entry_state(args=[sys.argv[2],claripy.BVV("-nn"),claripy.BVV("-vvv"),claripy.BVV("-e"),claripy.BVV("-b"),claripy.BVV("-H"),claripy.BVV("-u"),claripy.BVV("-r"),claripy.BVV("-")])
     replay=json.load(open(sys.argv[3],"r"))
@@ -113,12 +147,12 @@ def main():
         addr=order[num].split(" ")[1]
         addr=addr.split("-")[0]
 	real_target=addr
-        #processlog("Now process: "+addr)
+        processlog("Now process: "+addr)
         path=binary.factory.path(state)
         pg=binary.factory.path_group(path)
         addr=int(addr,16)
         branch=target[addr]['way'][0]
-        #processlog("pass to: "+hex(branch))
+        processlog("pass to: "+hex(branch))
         G=nx.Graph()
         for x in target[addr]["subcfg"]:
             G.add_edge(x[0],x[1])
@@ -126,11 +160,13 @@ def main():
                 #real_target=x[0]
         findtargetblock(G,addr,branch)
         GraphWithDistance(G)
-        print targetblock
-        print Distance
-        raw_input()
+        #print targetblock
+        #print Distance
+        #raw_input()
+        pending_state=[]
+        nowtime=time.time()
         #print "target block : "+hex(real_target)
-        #pg.step(successor_func=next,until=stop)
+        pg.step(successor_func=next,until=stop)
         num+=1
     #print G.edges()
     #print G.nodes()
