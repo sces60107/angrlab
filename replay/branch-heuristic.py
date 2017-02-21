@@ -5,15 +5,18 @@ import sys
 import angr
 import claripy
 import time
+import os.path
 G=nx.DiGraph()
 nowtime=0
+timeout=600
+need=False
 Distance={}
 branch=0
 over=0
 pending_state=[]
 real_target=0
-logfilename="B&Bangrlog"
-processlogfilename="B&Bcountlog"
+logfilename="Bangrlog"
+processlogfilename="Bcountlog"
 targetblock=0
 def processlog(message):
     temp=open(processlogfilename,"a")
@@ -28,10 +31,11 @@ def stop(pg):
     global over
     global pending_state
     global nowtime
+    global timeout
     if over==1:
         over=0
         return True
-    if time.time()-nowtime>600:
+    if time.time()-nowtime>timeout:
         processlog("timeout!")
         return True
     if len(pg.stashes["active"])<1:
@@ -43,11 +47,20 @@ def stop(pg):
             log("I am here")
             return false
     return False
+def check_file(name):
+    count=0
+    while os.path.isfile(name+str(count)):
+        count+=1
+    return open(name+str(count),"w")
+    
 def next(pg):
     global pending_state
     global G
     global branch
     global real_target
+    global timeout
+    global need
+    global over
     successor=pg.step()
     alladdr=[]
     bound=10000000000
@@ -78,7 +91,10 @@ def next(pg):
 			processlog( i.state.posix.dumps(0).encode("hex"))
 			processlog("we found it")
                         processlog(str(time.time()-nowtime))
-			f=open("B/0x"+real_target+"->"+hex(i.addr),"w")
+                        f=check_file("Bnew/0x"+real_target+"->"+hex(i.addr))
+			#f=open("Bnew/0x"+real_target+"->"+hex(i.addr),"w")
+                        if (time.time()-nowtime)*1.5>timeout:
+                            need=True
 			f.write(i.state.posix.dumps(0))
 			f.close()
             except:
@@ -131,6 +147,8 @@ def main():
     global branch
     global real_target
     global nowtime
+    global need
+    global timeout
     print len(sys.argv)
     if len(sys.argv)!=4:
 	print "Usage: ./branch-heuristic.py order-file binary-file json-file"
@@ -144,6 +162,9 @@ def main():
         target[int(b)]=o
     num=0
     while num!=len(order):
+        if need:
+            timeout+=100
+            need=False
         addr=order[num].split(" ")[1]
         addr=addr.split("-")[0]
 	real_target=addr
